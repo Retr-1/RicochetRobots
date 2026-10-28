@@ -1,66 +1,44 @@
 ﻿# Ricochet Robots — Rust
 
-Hrateľná logická hra pre jedného hráča, pripravená pre Android (na výšku), s rovnakým Rust kódom pre Windows, Linux a macOS. Používa Macroquad a vlastnú dosku; nepotrebuje obrázky ani internet počas hrania.
+Sólo logická hra pre Android ARM64 a počítače. Robot sa pohybuje po doske 16 × 16 až po stenu alebo ďalšieho robota. Dostaň robota požadovanej farby na cieľ v čo najmenšom počte ťahov.
 
-## Spustenie na počítači
-
-Nainštaluj stabilný Rust a spusti v tomto priečinku:
+## Spustenie
 
 ```powershell
-cargo run --release
+cargo run
 ```
 
-## Ovládanie
+Klikni alebo ťukni na robota a potiahni po doske. Na počítači fungujú šípky, výber robotov cez 1–4, Z pre návrat ťahu a R pre reset.
 
-Ťukni na robota a potiahni po doske v požadovanom smere. Na obrazovke sú iba tlačidlá Next level, Reset a Show solution. Na počítači fungujú šípky, čísla 1–4 na výber robota, Z na návrat a R na reštart.
+Na obrazovke sú tri tlačidlá: Next level, Reset a Show solution. Show solution najprv obnoví štart a prehrá najkratšie riešenie. Roboty ostávajú v plných farbách bez kruhu pri prehrávaní. Ukážka zvýrazní trasu a aktuálny krok; zoznam krokov sa posúva. Jeden krok trvá 0,55 s (príprava 0,10 s, pohyb 0,30 s, prestávka 0,15 s). Počas ukážky je ručné ovládanie pozastavené. Reset obnoví hranie.
 
-Robot ide až po stenu alebo iného robota. Dostaň robota požadovanej farby na kruhový cieľ s čo najmenším počtom ťahov. Neúspešný pohyb sa nepočíta. Reset obnoví začiatok kola; Next level otvorí ďalšie zadanie; Show solution obnoví kolo a prehrá najkratšie riešenie spolu so zoznamom krokov.
+## Náročnosť
 
-Hra má 16 deterministických kombinácií štartov a cieľového robota, ktoré sa opakujú. Zadania vytvára BFS do hĺbky štyroch ťahov. Náročnosť cieľa určuje jeho prvé dosiahnutie naprieč všetkými zostavami robotov. Ciele dostupné za nula alebo jeden ťah sú vylúčené; uložené riešenie je najkratšie. Po dokončení zobrazuje optimálny počet ťahov. Ide o sólový tréningový režim, bez súťažného časovača a multiplayera.
+Posuvník MINIMUM hore nastavuje presný optimálny počet ťahov v rozsahu 2–16. Predvolená hodnota je 11. Po uvoľnení posuvníka sa generuje nové zadanie; Next level zachová zvolenú náročnosť.
 
-## Android APK cez Docker
+Generátor vyberá nové štarty a cieľ na pevnej doske. IDA* s prípustným odhadom preverí menšie hĺbky pred prijatím riešenia. Verifikovaná dĺžka teda vyjadruje skutočné minimum, nie náhodnú cestu. Jednoťahové zadania sa nepoužívajú. Výpočet beží na pozadí s priebehom pokusov a dá sa nahradiť ďalším generovaním alebo zmenou posuvníka. Cieľový počet nie je vždy nájdený v limite výpočtu; vtedy sa zobrazí chyba a možno skúsiť Next level alebo nižšiu hodnotu. Hra nikdy potichu nezníži náročnosť. Vyššie hodnoty môžu na mobile trvať podstatne dlhšie.
 
-Spusti Docker Desktop s Linux kontajnermi. V PowerShelli v koreňovom priečinku projektu:
+## Android
 
-```powershell
-powershell -ExecutionPolicy Bypass -File .\build-android.ps1
-```
-
-APK vznikne v `target/android-artifacts/release/apk/`. Tento balík používa vývojový podpis na lokálne testovanie. Vydanie v obchode vyžaduje vlastný podpis a kontrolu aktuálnych požiadaviek obchodu. Konfigurácia cieli na ARM64 Android telefóny. Zostavenie ARM64 APK bolo overené v Dockeri. Spustenie a dotyky na fyzickom telefóne zatiaľ neboli overené.
-
-Oficiálny postup: https://macroquad.rs/articles/android/
-
-iOS balík zatiaľ nie je nakonfigurovaný.
-
-## Overenie
-
-```powershell
-cargo test
-cargo check
-cargo fmt --check
-```
-
-Testy kontrolujú zastavenie pri robotoch a hraniciach, symetriu stien, riešiteľnosť všetkých 16 zadaní, návrat ťahu a reštart. Nezávislé prehľadanie všetkých kratších postupností overuje minimálny počet ťahov aj vylúčenie jednoťahových zadaní.
-
-### Kompatibilita Cargo.lock
-
-Docker obraz obsahuje starší build nástroj, ktorý nečíta lock formát v4. Namiesto priameho Docker príkazu preto použi:
+Spusti Docker Desktop s Linux kontajnermi a v priečinku projektu:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\build-android.ps1
 ```
 
-Skript skopíruje zdrojové súbory do kontajnera a iba v tejto kópii nastaví lock formát v3. Uzamknuté verzie závislostí ostávajú rovnaké a hostiteľský Cargo.lock sa nemení. Výstupy sa zapíšu do lokálneho priečinka target. Tento postup bol overený kompletným zostavením a podpísaním APK.
+APK: `target/android-artifacts/release/apk/robots.apk`.
 
-Pre Docker s Rustom 1.79 je Macroquad uzamknuté na 0.4.13 (s fontdue 0.7.3). Novšie verzie Macroquad a fontdue vyžadujú novšie Rust API. Build skript uchováva stiahnuté závislosti v Docker volume `ricochet-android-registry` pre rýchlejšie opakované zostavenia.
+Build skript vytvorí izolovanú kópiu projektu s lock formátom v3 pre starší Cargo kontajnera. Hostiteľský Cargo.lock sa nemení. Macroquad je uzamknuté na 0.4.13 pre Rust 1.79. Závislosti sa uchovávajú vo volume `ricochet-android-registry`; prvé načítanie starého Git indexu môže trvať niekoľko minút. Testovací podpis zostáva vo volume `ricochet-android-signing` pre aktualizácie tej istej inštalácie.
 
+Natívny cieľ `robots` sa zhoduje s poslednou časťou package `sk.ricochet.robots`; skript kontroluje Java loader a `lib/arm64-v8a/librobots.so` v APK. Balík má vývojový podpis na lokálne testovanie. iOS zatiaľ nie je nakonfigurovaný.
 
+## Overenie a meranie generátora
 
+```powershell
+cargo test --release --bin robots
+cargo clippy --all-targets -- -D warnings
+cargo run --release --example generation_benchmark -- 11 0
+```
 
-### Nativna kniznica a instalacia
-
-Rust binarny ciel sa vola `robots`, rovnako ako posledna cast Android package `sk.ricochet.robots`. Tento build nastroj z nej odvodzuje meno pre System.loadLibrary. APK sa preto vola `robots.apk` a obsahuje `lib/arm64-v8a/librobots.so`. Build skript overuje zhodu Java loadera s obsahom APK.
-
-Lokalny testovaci podpis je ulozeny v Docker volume `ricochet-android-signing`, aby dalsie buildy mohli aktualizovat tu istu instalaciu. Pri prechode zo stareho APK, ktore malo jednorazovy podpis, povodnu aplikaciu najprv odinstaluj. Tym sa odstrania aj jej lokalne data.
-
+Posledný príkaz prijíma náročnosť a číslo kola. Testy porovnávajú solver s nezávislým BFS na menších zadaniach, kontrolujú 11-ťahové zadanie vrátane vylúčenia riešenia do 10 ťahov, pohyb, steny, prehrávanie a transformáciu dotykov.
 

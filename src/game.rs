@@ -190,8 +190,7 @@ mod tests {
     fn walls_are_symmetric() {
         let b = Board::new();
         for s in 0..256 {
-            for d in 0..4 {
-                let (dx, dy) = DIRS[d];
+            for (d, &(dx, dy)) in DIRS.iter().enumerate() {
                 let (x, y) = (s as i32 % 16 + dx, s as i32 / 16 + dy);
                 if (0..16).contains(&x) && (0..16).contains(&y) {
                     assert_eq!(b.walls[s][d], b.walls[(y * 16 + x) as usize][(d + 2) % 4]);
