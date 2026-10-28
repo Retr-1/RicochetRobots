@@ -1,0 +1,29 @@
+[package]
+name = "robots"
+version = "0.1.0"
+edition = "2021"
+
+# cargo-quad-apk loads the library named after the final Android package segment.
+[[bin]]
+name = "robots"
+path = "src/main.rs"
+
+[dependencies]
+macroquad = "=0.4.13"
+
+[package.metadata.android]
+package_name = "sk.ricochet.robots"
+label = "Ricochet Robots"
+version_code = 4
+build_targets = ["aarch64-linux-android"]
+
+[package.metadata.android.activity_attributes]
+"android:screenOrientation" = "portrait"
+"android:exported" = "true"
+
+
+
+
+
+
+
