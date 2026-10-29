@@ -4,16 +4,19 @@ mod generation;
 mod layout;
 mod solver;
 use game::*;
+use generation::{Minimum, Settings};
 use macroquad::prelude::*;
 const BG: Color = Color::new(0.035, 0.055, 0.10, 1.);
 const PANEL: Color = Color::new(0.08, 0.11, 0.18, 1.);
-const COLORS: [Color; 4] = [
+const COLORS: [Color; 6] = [
     Color::new(1., 0.32, 0.38, 1.),
     Color::new(0.23, 0.64, 1., 1.),
     Color::new(0.25, 0.86, 0.62, 1.),
     Color::new(1., 0.77, 0.25, 1.),
+    Color::new(0.94, 0.37, 0.88, 1.),
+    Color::new(0.22, 0.89, 0.94, 1.),
 ];
-const NAMES: [&str; 4] = ["CERVENY", "MODRY", "ZELENY", "ZLTY"];
+const NAMES: [&str; 6] = ["CERVENY", "MODRY", "ZELENY", "ZLTY", "RUZOVY", "TYRKYSOVY"];
 fn conf() -> Conf {
     Conf {
         window_title: "Ricochet Robots".into(),
@@ -49,30 +52,85 @@ fn button(r: Rect, t: &str, click: Option<Vec2>, active: bool) -> bool {
     );
     click.is_some_and(|p| r.contains(p))
 }
+fn radio(x: f32, text: &str, selected: bool, click: Option<Vec2>) -> bool {
+    draw_circle_lines(
+        x + 7.,
+        55.,
+        6.,
+        1.5,
+        if selected { COLORS[1] } else { GRAY },
+    );
+    if selected {
+        draw_circle(x + 7., 55., 3., COLORS[1]);
+    }
+    label(text, x + 21., 61., 17., if selected { WHITE } else { GRAY });
+    click.is_some_and(|p| Rect::new(x, 42., 190., 25.).contains(p))
+}
+// A slider commits its setting on release; dragging never starts multiple workers.
+fn slider(
+    id: u8,
+    y: f32,
+    value: &mut usize,
+    range: (usize, usize, usize),
+    enabled: bool,
+    input: (Vec2, Option<Vec2>),
+    drag: &mut Option<u8>,
+) -> bool {
+    let (min, max, step) = range;
+    let (pointer, click) = input;
+    let color = if enabled { COLORS[1] } else { GRAY };
+    let knob = 258. + (*value - min) as f32 / (max - min) as f32 * 146.;
+    draw_line(258., y, 404., y, 4., PANEL);
+    draw_line(258., y, knob, y, 4., color);
+    draw_circle(knob, y, 7., color);
+    if enabled && click.is_some_and(|p| Rect::new(246., y - 12., 172., 24.).contains(p)) {
+        *drag = Some(id);
+    }
+    if *drag == Some(id) {
+        let index = (((pointer.x - 258.) / 146.).clamp(0., 1.) * ((max - min) / step) as f32)
+            .round() as usize;
+        *value = min + index * step;
+        if is_mouse_button_released(MouseButton::Left) {
+            *drag = None;
+            return true;
+        }
+    }
+    false
+}
 #[macroquad::main(conf)]
 async fn main() {
     let mut g = Game::new(0);
-    let mut difficulty = 11u8;
+    let mut settings = Settings::default();
+    let mut fixed_minimum = 11usize;
+    let mut target_minimum = 11usize;
     let mut next_round = 1usize;
-    let mut generation = Some(generation::Generation::start(0, difficulty));
+    let mut generation = Some(generation::Generation::start(0, settings));
     let mut generation_error: Option<String> = None;
-    let mut difficulty_drag = false;
+    let mut drag = None;
     let mut press = None;
     let mut playback: Option<demo::Demo> = None;
     let mut showing_solution = false;
     loop {
         if let Some(job) = generation.as_ref() {
-            if let Ok(result) = job.receiver.try_recv() {
-                match result {
-                    Ok(next) => {
-                        g = next;
-                        generation_error = None;
+            target_minimum = job.difficulty as usize;
+            match job.receiver.try_recv() {
+                Ok(result) => {
+                    match result {
+                        Ok(next) => {
+                            g = next;
+                            generation_error = None;
+                        }
+                        Err(message) => generation_error = Some(message),
                     }
-                    Err(message) => generation_error = Some(message),
+                    generation = None;
+                    playback = None;
+                    showing_solution = false;
                 }
-                generation = None;
-                playback = None;
-                showing_solution = false;
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                    generation = None;
+                    generation_error = Some("Generator sa zastavil. Skus Next level.".into());
+                }
+                Err(std::sync::mpsc::TryRecvError::Empty) => {}
             }
         }
         if let Some(demo) = playback.as_mut() {
@@ -91,67 +149,135 @@ async fn main() {
         if let Some(p) = click {
             press = Some(p);
         }
-        label("RICOCHET", 22., 42., 32., WHITE);
-        label(
-            &format!("MINIMUM: {difficulty} TAHOV"),
-            23.,
-            65.,
-            16.,
-            WHITE,
-        );
-        let slider = Rect::new(232., 48., 184., 25.);
-        draw_line(240., 62., 408., 62., 4., PANEL);
-        let knob = 240. + (difficulty as f32 - 2.) / 14. * 168.;
-        draw_line(240., 62., knob, 62., 4., COLORS[1]);
-        draw_circle(knob, 62., 8., COLORS[1]);
-        if click.is_some_and(|p| slider.contains(p)) {
-            difficulty_drag = true;
-        }
-        if difficulty_drag {
-            difficulty = (2. + ((pointer.x - 240.) / 168.).clamp(0., 1.) * 14.).round() as u8;
-            if is_mouse_button_released(MouseButton::Left) {
-                difficulty_drag = false;
-                generation = Some(generation::Generation::start(next_round, difficulty));
-                next_round += 1;
-                generation_error = None;
-                playback = None;
-                showing_solution = false;
-                press = None;
-            }
-        }
-        label(&format!("KOLO {:02}", g.round + 1), 22., 105., 18., GRAY);
-        label(
-            &format!("{} tahov", g.history.len()),
-            300.,
-            105.,
+        label("RICOCHET ROBOTS", 22., 32., 28., WHITE);
+        let mut changed = false;
+        if radio(
             22.,
-            WHITE,
-        );
-        draw_circle(34., 137., 8., COLORS[g.robot]);
+            "Vlastne minimum",
+            matches!(settings.minimum, Minimum::Fixed(_)),
+            click,
+        ) && settings.minimum == Minimum::Random
+        {
+            settings.minimum = Minimum::Fixed(fixed_minimum as u8);
+            changed = true;
+        }
+        if radio(
+            224.,
+            "Nahodne minimum",
+            settings.minimum == Minimum::Random,
+            click,
+        ) && settings.minimum != Minimum::Random
+        {
+            settings.minimum = Minimum::Random;
+            changed = true;
+        }
+        let actual_min = generation
+            .as_ref()
+            .map_or(target_minimum, |job| job.difficulty as usize);
+        let is_fixed = matches!(settings.minimum, Minimum::Fixed(_));
         label(
-            &format!("{} robot na oznaceny ciel", NAMES[g.robot]),
-            52.,
-            143.,
+            &format!(
+                "Minimum: {}{}",
+                if is_fixed { fixed_minimum } else { actual_min },
+                if is_fixed { " tahov" } else { " (nahodne X)" }
+            ),
+            22.,
+            85.,
             17.,
             WHITE,
         );
-        let cell = 24.;
-        let origin = vec2(28., 168.);
-        for y in 0..N {
-            for x in 0..N {
-                let s = y * 16 + x;
-                let px = origin.x + x as f32 * cell;
-                let py = origin.y + y as f32 * cell;
+        let mut min_display = if is_fixed { fixed_minimum } else { actual_min };
+        if slider(
+            0,
+            79.,
+            &mut min_display,
+            (2, 16, 1),
+            is_fixed,
+            (pointer, click),
+            &mut drag,
+        ) {
+            changed = true;
+        }
+        if is_fixed {
+            fixed_minimum = min_display;
+            settings.minimum = Minimum::Fixed(fixed_minimum as u8);
+        }
+        label(
+            &format!("Pocet robotov: {}", settings.robots),
+            22.,
+            111.,
+            17.,
+            WHITE,
+        );
+        changed |= slider(
+            1,
+            105.,
+            &mut settings.robots,
+            (1, 6, 1),
+            true,
+            (pointer, click),
+            &mut drag,
+        );
+        label(
+            &format!("Doska: {} x {}", settings.size, settings.size),
+            22.,
+            137.,
+            17.,
+            WHITE,
+        );
+        changed |= slider(
+            2,
+            131.,
+            &mut settings.size,
+            (8, 16, 2),
+            true,
+            (pointer, click),
+            &mut drag,
+        );
+        if changed {
+            generation = Some(generation::Generation::start(next_round, settings));
+            next_round += 1;
+            generation_error = None;
+            playback = None;
+            showing_solution = false;
+            press = None;
+        }
+        label(&format!("KOLO {:02}", g.round + 1), 22., 164., 18., GRAY);
+        label(
+            &format!("{} tahov", g.history.len()),
+            300.,
+            164.,
+            22.,
+            WHITE,
+        );
+        draw_circle(34., 184., 7., COLORS[g.robot]);
+        label(
+            &format!("{} robot na oznaceny ciel", NAMES[g.robot]),
+            52.,
+            190.,
+            17.,
+            WHITE,
+        );
+        let size = g.board.size;
+        let cell = 384. / size as f32;
+        let origin = vec2(28., 202.);
+        let center = |s: u8| {
+            origin
+                + vec2(
+                    (s as usize % size) as f32 + 0.5,
+                    (s as usize / size) as f32 + 0.5,
+                ) * cell
+        };
+        for y in 0..size {
+            for x in 0..size {
+                let s = y * size + x;
+                let (px, py) = (origin.x + x as f32 * cell, origin.y + y as f32 * cell);
                 draw_rectangle(
                     px,
                     py,
                     cell - 1.,
                     cell - 1.,
-                    if (7..9).contains(&x) && (7..9).contains(&y) {
-                        BG
-                    } else {
-                        PANEL
-                    },
+                    if g.board.blocked(s as u8) { BG } else { PANEL },
                 );
                 for d in 0..4 {
                     if g.board.walls[s][d] {
@@ -166,26 +292,24 @@ async fn main() {
                 }
             }
         }
-        let center = |s: u8| origin + vec2((s % 16) as f32 + 0.5, (s / 16) as f32 + 0.5) * cell;
         let target = center(g.target);
-        draw_circle_lines(target.x, target.y, 9., 2., COLORS[g.robot]);
+        draw_circle_lines(target.x, target.y, cell * 0.37, 2., COLORS[g.robot]);
         draw_line(
-            target.x - 5.,
+            target.x - cell * 0.2,
             target.y,
-            target.x + 5.,
+            target.x + cell * 0.2,
             target.y,
             2.,
             COLORS[g.robot],
         );
         draw_line(
             target.x,
-            target.y - 5.,
+            target.y - cell * 0.2,
             target.x,
-            target.y + 5.,
+            target.y + cell * 0.2,
             2.,
             COLORS[g.robot],
         );
-        // Keep the entire route visible before, during and after each slide.
         if let Some(demo) = playback.as_ref() {
             let from = center(demo.from);
             let to = center(demo.to);
@@ -197,7 +321,7 @@ async fn main() {
                 from.y,
                 to.x,
                 to.y,
-                12.,
+                cell * 0.5,
                 Color::new(color.r, color.g, color.b, 0.18),
             );
             draw_line(from.x, from.y, to.x, to.y, 2., color);
@@ -208,43 +332,41 @@ async fn main() {
                 color,
             );
         }
-        for (r, &robot_color) in COLORS.iter().enumerate() {
+        for (r, &color) in COLORS.iter().enumerate().take(g.board.robots) {
             let active = playback.as_ref().is_some_and(|demo| demo.robot == r);
             let p = if let Some(demo) = playback.as_ref().filter(|demo| demo.robot == r) {
                 let t = demo.progress(get_time());
-                let eased = t * t * (3. - 2. * t);
-                center(demo.from).lerp(center(demo.to), eased)
+                center(demo.from).lerp(center(demo.to), t * t * (3. - 2. * t))
             } else {
                 center(g.positions[r])
             };
-            let color = robot_color;
-            let size = if active { 10. } else { 7. };
+            let radius = cell * if active { 0.38 } else { 0.29 };
             if r == g.selected && !showing_solution {
-                draw_circle_lines(p.x, p.y, 11., 2., WHITE);
+                draw_circle_lines(p.x, p.y, cell * 0.45, 2., WHITE);
             }
-            draw_rectangle(p.x - size, p.y - size, size * 2., size * 2., color);
-            draw_circle(p.x - 3., p.y - 2., 2., BG);
-            draw_circle(p.x + 3., p.y - 2., 2., BG);
-            if input_enabled && click.is_some_and(|v| v.distance(p) < 13.) {
+            draw_rectangle(p.x - radius, p.y - radius, radius * 2., radius * 2., color);
+            draw_circle(p.x - cell * 0.125, p.y - cell * 0.08, cell * 0.08, BG);
+            draw_circle(p.x + cell * 0.125, p.y - cell * 0.08, cell * 0.08, BG);
+            if input_enabled && click.is_some_and(|v| v.distance(p) < cell * 0.5) {
                 g.selected = r;
             }
         }
-        if button(Rect::new(22., 580., 126., 52.), "Next level", click, false) {
-            generation = Some(generation::Generation::start(next_round, difficulty));
+        if button(Rect::new(22., 610., 126., 46.), "Next level", click, false) {
+            generation = Some(generation::Generation::start(next_round, settings));
             next_round += 1;
             generation_error = None;
             playback = None;
             showing_solution = false;
             press = None;
         }
-        if button(Rect::new(158., 580., 90., 52.), "Reset", click, false) {
+        if button(Rect::new(158., 610., 90., 46.), "Reset", click, false) {
             g.reset();
             playback = None;
             showing_solution = false;
             press = None;
         }
         if button(
-            Rect::new(258., 580., 160., 52.),
+            Rect::new(258., 610., 160., 46.),
             "Show solution",
             click,
             showing_solution,
@@ -266,28 +388,27 @@ async fn main() {
                     if demo.finished { "HOTOVO" } else { "" }
                 ),
                 22.,
-                664.,
+                686.,
                 21.,
                 WHITE,
             );
-            draw_rectangle(22., 674., 396., 4., PANEL);
+            draw_rectangle(22., 696., 396., 4., PANEL);
             let progress = if demo.finished {
                 1.
             } else {
                 ((get_time() - demo.started) / demo::STEP_TIME).clamp(0., 1.) as f32
             };
-            draw_rectangle(22., 674., 396. * progress, 4., color);
+            draw_rectangle(22., 696., 396. * progress, 4., color);
             let first = demo
                 .step
                 .saturating_sub(1)
                 .min(g.solution.len().saturating_sub(4));
             for (i, &(robot, direction)) in g.solution.iter().enumerate().skip(first).take(4) {
-                let y = 704. + (i - first) as f32 * 26.;
+                let y = 724. + (i - first) as f32 * 24.;
                 if i == demo.step {
-                    draw_rectangle(22., y - 19., 396., 25., PANEL);
-                    draw_rectangle(22., y - 19., 4., 25., COLORS[robot]);
+                    draw_rectangle(22., y - 18., 396., 23., PANEL);
+                    draw_rectangle(22., y - 18., 4., 23., COLORS[robot]);
                 }
-                let row_color = if i == demo.step { COLORS[robot] } else { GRAY };
                 label(
                     &format!(
                         "{} {}. {}: {}",
@@ -304,8 +425,8 @@ async fn main() {
                     ),
                     34.,
                     y,
-                    19.,
-                    row_color,
+                    18.,
+                    if i == demo.step { COLORS[robot] } else { GRAY },
                 );
             }
         }
@@ -313,8 +434,8 @@ async fn main() {
             if let Some(start) = press.take() {
                 let delta = pointer - start;
                 if input_enabled
-                    && Rect::new(28., 168., 384., 384.).contains(start)
-                    && delta.length() > 24.
+                    && Rect::new(28., 202., 384., 384.).contains(start)
+                    && delta.length() > cell * 0.65
                 {
                     let d = if delta.x.abs() > delta.y.abs() {
                         if delta.x > 0. {
@@ -341,9 +462,17 @@ async fn main() {
                 g.play(d);
             }
         }
-        for (r, k) in [KeyCode::Key1, KeyCode::Key2, KeyCode::Key3, KeyCode::Key4]
-            .iter()
-            .enumerate()
+        for (r, k) in [
+            KeyCode::Key1,
+            KeyCode::Key2,
+            KeyCode::Key3,
+            KeyCode::Key4,
+            KeyCode::Key5,
+            KeyCode::Key6,
+        ]
+        .iter()
+        .enumerate()
+        .take(g.board.robots)
         {
             if input_enabled && is_key_pressed(*k) {
                 g.selected = r;
@@ -365,74 +494,68 @@ async fn main() {
                     "VYRIESENE!"
                 },
                 22.,
-                815.,
-                26.,
+                825.,
+                25.,
                 COLORS[g.robot],
             );
             label(
                 &format!("Najkratsie riesenie: {} tahov", g.solution.len()),
                 22.,
-                840.,
+                848.,
                 17.,
                 WHITE,
             );
         } else if showing_solution {
-            label(
-                "Sleduj zvyrazneneho robota a farebnu trasu.",
-                22.,
-                814.,
-                17.,
-                WHITE,
-            );
+            label("Sleduj robota a farebnu trasu.", 22., 825., 17., WHITE);
             label(
                 "Show solution zopakuje ukazku. Reset vrati hru.",
                 22.,
-                839.,
+                848.,
                 16.,
                 GRAY,
             );
         } else {
-            label(
-                "Vyber robota. Potiahni po doske alebo pouzi sipky.",
-                22.,
-                814.,
-                16.,
-                GRAY,
-            );
+            label("Vyber robota a potiahni po doske.", 22., 825., 17., GRAY);
             label(
                 "Zastavi ho iba stena alebo iny robot.",
                 22.,
-                839.,
+                848.,
                 16.,
                 GRAY,
             );
         }
         if let Some(job) = generation.as_ref() {
-            draw_rectangle(28., 168., 384., 384., Color::new(BG.r, BG.g, BG.b, 0.94));
+            draw_rectangle(28., 202., 384., 384., Color::new(BG.r, BG.g, BG.b, 0.94));
             label(
-                &format!("GENERUJEM: {difficulty} TAHOV"),
-                48.,
-                310.,
-                24.,
+                &format!("GENERUJEM: {} TAHOV", job.difficulty),
+                45.,
+                330.,
+                23.,
                 WHITE,
             );
-            label("Overujem najkratsie riesenie...", 48., 346., 19., GRAY);
+            label("Overujem najkratsie riesenie...", 45., 366., 18., GRAY);
             label(
                 &format!(
                     "Kandidat {}",
                     job.attempts.load(std::sync::atomic::Ordering::Relaxed)
                 ),
-                48.,
-                378.,
+                45.,
+                400.,
                 18.,
                 COLORS[1],
             );
-            label("Narocne zadania mozu chvilu trvat.", 48., 420., 17., GRAY);
-        } else if let Some(message) = generation_error.as_ref() {
-            draw_rectangle(28., 168., 384., 384., BG);
-            label("ZADANIE SA NEPODARILO NAJST", 42., 310., 20., WHITE);
-            label("Skus Next level alebo zniz minimum.", 42., 350., 18., GRAY);
-            let _ = message;
+            label("Narocne zadania mozu chvilu trvat.", 45., 440., 17., GRAY);
+        } else if generation_error.is_some() {
+            draw_rectangle(28., 202., 384., 384., BG);
+            label("ROZMIESTNENIE SA NENASLO", 42., 330., 21., WHITE);
+            label(
+                "Skus Next level alebo zmen nastavenia.",
+                42.,
+                370.,
+                17.,
+                GRAY,
+            );
+            label("Minimum sa automaticky neznizuje.", 42., 400., 17., GRAY);
         }
         set_default_camera();
         next_frame().await;

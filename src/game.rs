@@ -1,21 +1,32 @@
 use std::collections::{HashSet, VecDeque};
-pub const N: usize = 16;
-pub type Positions = [u8; 4];
+pub const MAX_ROBOTS: usize = 6;
+pub type Positions = [u8; MAX_ROBOTS];
 pub const DIRS: [(i32, i32); 4] = [(0, -1), (1, 0), (0, 1), (-1, 0)];
 #[derive(Clone)]
 pub struct Board {
-    pub walls: [[bool; 4]; 256],
+    pub walls: Vec<[bool; 4]>,
+    pub size: usize,
+    pub robots: usize,
 }
 impl Board {
     pub fn new() -> Self {
+        Self::with_settings(16, 4)
+    }
+    pub fn with_settings(size: usize, robots: usize) -> Self {
+        assert!((8..=16).contains(&size) && size & 1 == 0);
+        assert!((1..=MAX_ROBOTS).contains(&robots));
         let mut b = Self {
-            walls: [[false; 4]; 256],
+            walls: vec![[false; 4]; size * size],
+            size,
+            robots,
         };
-        for y in 0..16 {
-            for x in 0..16 {
+        for y in 0..size as i32 {
+            for x in 0..size as i32 {
                 for (d, (dx, dy)) in DIRS.iter().enumerate() {
-                    if !(0..16).contains(&(x + dx)) || !(0..16).contains(&(y + dy)) {
-                        b.walls[(y * 16 + x) as usize][d] = true;
+                    if !(0..size as i32).contains(&(x + dx))
+                        || !(0..size as i32).contains(&(y + dy))
+                    {
+                        b.walls[(y * size as i32 + x) as usize][d] = true;
                     }
                 }
             }
@@ -46,10 +57,10 @@ impl Board {
             (15, 8, 2),
             (6, 15, 1),
         ] {
-            b.wall(x, y, d);
+            b.wall(x * size / 16, y * size / 16, d);
         }
-        for y in 7..9 {
-            for x in 7..9 {
+        for y in size / 2 - 1..size / 2 + 1 {
+            for x in size / 2 - 1..size / 2 + 1 {
                 for d in 0..4 {
                     b.wall(x, y, d);
                 }
@@ -57,12 +68,18 @@ impl Board {
         }
         b
     }
+    pub fn blocked(&self, cell: u8) -> bool {
+        let x = cell as usize % self.size;
+        let y = cell as usize / self.size;
+        (self.size / 2 - 1..self.size / 2 + 1).contains(&x)
+            && (self.size / 2 - 1..self.size / 2 + 1).contains(&y)
+    }
     fn wall(&mut self, x: usize, y: usize, d: usize) {
-        self.walls[y * 16 + x][d] = true;
+        self.walls[y * self.size + x][d] = true;
         let (dx, dy) = DIRS[d];
         let (nx, ny) = (x as i32 + dx, y as i32 + dy);
-        if (0..16).contains(&nx) && (0..16).contains(&ny) {
-            self.walls[(ny * 16 + nx) as usize][(d + 2) % 4] = true;
+        if (0..self.size as i32).contains(&nx) && (0..self.size as i32).contains(&ny) {
+            self.walls[(ny * self.size as i32 + nx) as usize][(d + 2) % 4] = true;
         }
     }
     pub fn slide(&self, p: Positions, r: usize, d: usize) -> Positions {
@@ -70,8 +87,9 @@ impl Board {
         let mut s = p[r] as usize;
         while !self.walls[s][d] {
             let (dx, dy) = DIRS[d];
-            let next = (s as i32 + dx + dy * 16) as usize;
-            if p.iter()
+            let next = (s as i32 + dx + dy * self.size as i32) as usize;
+            if p[..self.robots]
+                .iter()
                 .enumerate()
                 .any(|(i, &v)| i != r && v as usize == next)
             {
@@ -85,10 +103,10 @@ impl Board {
     // BFS visits complete states, but target difficulty is its FIRST arrival across all states.
     pub fn puzzle(&self, seed: usize) -> (Positions, usize, u8, Vec<(usize, usize)>) {
         let starts = [
-            [17, 46, 210, 237],
-            [33, 61, 194, 222],
-            [18, 44, 209, 235],
-            [49, 30, 225, 204],
+            [17, 46, 210, 237, 0, 0],
+            [33, 61, 194, 222, 0, 0],
+            [18, 44, 209, 235, 0, 0],
+            [49, 30, 225, 204, 0, 0],
         ];
         let start = starts[seed % starts.len()];
         let robot = (seed / starts.len()) % 4;
@@ -183,8 +201,8 @@ mod tests {
     #[test]
     fn slides_to_edge_and_robot() {
         let b = Board::new();
-        assert_eq!(b.slide([17, 20, 200, 220], 0, 1)[0], 19);
-        assert_eq!(b.slide([17, 20, 200, 220], 0, 3)[0], 16);
+        assert_eq!(b.slide([17, 20, 200, 220, 0, 0], 0, 1)[0], 19);
+        assert_eq!(b.slide([17, 20, 200, 220, 0, 0], 0, 3)[0], 16);
     }
     #[test]
     fn walls_are_symmetric() {
@@ -258,6 +276,28 @@ mod tests {
             }
             assert!(g.won());
             assert_eq!(g.history.len(), g.solution.len());
+        }
+    }
+    #[test]
+    fn every_board_size_has_symmetric_walls_and_stops_at_its_edges() {
+        for size in (8..=16).step_by(2) {
+            let board = Board::with_settings(size, 1);
+            for cell in 0..size * size {
+                let (x, y) = ((cell % size) as i32, (cell / size) as i32);
+                for (d, &(dx, dy)) in DIRS.iter().enumerate() {
+                    let (nx, ny) = (x + dx, y + dy);
+                    if (0..size as i32).contains(&nx) && (0..size as i32).contains(&ny) {
+                        assert_eq!(
+                            board.walls[cell][d],
+                            board.walls[ny as usize * size + nx as usize][(d + 2) % 4]
+                        );
+                    } else {
+                        assert!(board.walls[cell][d]);
+                    }
+                }
+            }
+            let p = [(size + 1) as u8, 0, 0, 0, 0, 0];
+            assert!((board.slide(p, 0, 1)[0] as usize) < size * size);
         }
     }
 }
