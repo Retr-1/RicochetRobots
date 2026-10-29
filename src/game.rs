@@ -88,7 +88,7 @@ impl Board {
                 }
             }
         }
-        let mut state = seed ^ 0x9e3779b97f4a7c15;
+        let mut state = (seed ^ 0x9e3779b97f4a7c15).max(1);
         let mut random = || {
             state ^= state << 13;
             state ^= state >> 7;

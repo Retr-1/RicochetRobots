@@ -14,7 +14,7 @@ macroquad = "=0.4.13"
 [package.metadata.android]
 package_name = "sk.ricochet.robots"
 label = "Ricochet Robots"
-version_code = 13
+version_code = 14
 android_version = 36
 target_sdk_version = 36
 min_sdk_version = 21
@@ -37,6 +37,7 @@ build_targets = ["aarch64-linux-android"]
 
 [profile.dev]
 opt-level = 2
+
 
 
 

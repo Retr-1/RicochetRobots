@@ -100,7 +100,10 @@ fn slider(
 #[macroquad::main(conf)]
 async fn main() {
     let mut g = Game::new(0);
-    let mut settings = Settings::default();
+    let mut settings = Settings {
+        board_seed: generation::fresh_seed(),
+        ..Settings::default()
+    };
     let mut fixed_minimum = 11usize;
     let mut target_minimum = 11usize;
     let mut next_round = 1usize;
@@ -373,7 +376,7 @@ async fn main() {
             press = None;
         }
         if button(Rect::new(226., 674., 192., 44.), "New board", click, false) {
-            settings.board_seed = settings.board_seed.wrapping_add(1).max(1);
+            settings.board_seed = generation::fresh_seed();
             generation = Some(generation::Generation::start(next_round, settings));
             next_round += 1;
             generation_error = None;

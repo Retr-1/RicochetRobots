@@ -3,9 +3,19 @@ use crate::{
     solver::{solve, SearchResult},
 };
 use std::sync::{
-    atomic::{AtomicBool, AtomicUsize, Ordering},
+    atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering},
     mpsc, Arc,
 };
+
+// Each interactive request gets a fresh seed. RandomState is initialized by the
+// standard library's randomly seeded hash state; the counter also separates calls.
+pub fn fresh_seed() -> u64 {
+    use std::hash::{BuildHasher, Hasher};
+    static NONCE: AtomicU64 = AtomicU64::new(0);
+    let mut hasher = std::collections::hash_map::RandomState::new().build_hasher();
+    hasher.write_u64(NONCE.fetch_add(1, Ordering::Relaxed));
+    hasher.finish().max(1)
+}
 
 pub const MIN_MOVES: u8 = 2;
 pub const MAX_MOVES: u8 = 14;
@@ -21,6 +31,7 @@ pub struct Settings {
     pub robots: usize,
     pub minimum: Minimum,
     pub board_seed: u64,
+    pub puzzle_seed: u64,
 }
 impl Default for Settings {
     fn default() -> Self {
@@ -29,6 +40,7 @@ impl Default for Settings {
             robots: 4,
             minimum: Minimum::Fixed(11),
             board_seed: 0,
+            puzzle_seed: 0,
         }
     }
 }
@@ -38,7 +50,9 @@ impl Settings {
             Minimum::Fixed(n) => n,
             Minimum::Random => {
                 let mut seed = (round as u64 + 1).wrapping_mul(0xd1b54a32d192ed03)
-                    ^ (self.size as u64 * 31 + self.robots as u64);
+                    ^ (self.size as u64 * 31 + self.robots as u64)
+                    ^ self.puzzle_seed;
+                seed = seed.max(1);
                 MIN_MOVES + random(&mut seed) % (MAX_MOVES - MIN_MOVES + 1)
             }
         }
@@ -72,7 +86,8 @@ impl Drop for Generation {
     }
 }
 impl Generation {
-    pub fn start(round: usize, settings: Settings) -> Self {
+    pub fn start(round: usize, mut settings: Settings) -> Self {
+        settings.puzzle_seed = fresh_seed();
         let (sender, receiver) = mpsc::channel();
         let cancel = Arc::new(AtomicBool::new(false));
         let attempts = Arc::new(AtomicUsize::new(0));
@@ -126,7 +141,10 @@ pub fn generate_with_settings(
     }
     let difficulty = settings.difficulty(round);
     let board = Board::generated(settings.size, settings.robots, settings.board_seed);
-    let mut seed = (round as u64 + 1).wrapping_mul(0x9e3779b97f4a7c15) ^ difficulty as u64;
+    let mut seed = ((round as u64 + 1).wrapping_mul(0x9e3779b97f4a7c15)
+        ^ difficulty as u64
+        ^ settings.puzzle_seed)
+        .max(1);
     // Draw X once, then search only for arrangements whose proven optimum is X.
     for attempt in 0..256 {
         if cancel.load(Ordering::Relaxed) {
@@ -211,6 +229,7 @@ mod tests {
                 robots,
                 minimum: Minimum::Fixed(2),
                 board_seed: 0,
+                puzzle_seed: 0,
             };
             let mut game =
                 generate_with_settings(0, settings, &AtomicBool::new(false), &AtomicUsize::new(0))
@@ -243,6 +262,7 @@ mod tests {
             robots: 3,
             minimum: Minimum::Random,
             board_seed: 0,
+            puzzle_seed: 0,
         };
         let round = (0..100)
             .find(|&round| settings.difficulty(round) == 2)
@@ -275,6 +295,7 @@ mod tests {
             robots: 3,
             minimum: Minimum::Fixed(2),
             board_seed: 7,
+            puzzle_seed: 0,
         };
         for round in 0..2 {
             let mut game = generate_with_settings(
@@ -313,5 +334,50 @@ mod tests {
         for round in 0..10_000 {
             assert!((2..=14).contains(&random.difficulty(round)));
         }
+    }
+    #[test]
+    fn fresh_seeds_are_distinct_and_interactive_requests_do_not_repeat_round_zero() {
+        let seeds: std::collections::HashSet<_> = (0..128).map(|_| fresh_seed()).collect();
+        assert_eq!(seeds.len(), 128);
+        assert!(!seeds.contains(&0));
+        let settings = Settings {
+            size: 10,
+            robots: 3,
+            minimum: Minimum::Fixed(2),
+            board_seed: 17,
+            puzzle_seed: 0,
+        };
+        let mut puzzles = std::collections::HashSet::new();
+        for _ in 0..6 {
+            let job = Generation::start(0, settings);
+            let game = job
+                .receiver
+                .recv_timeout(std::time::Duration::from_secs(10))
+                .unwrap()
+                .unwrap();
+            assert_eq!(game.board.walls, Board::generated(10, 3, 17).walls);
+            assert_eq!(game.solution.len(), 2);
+            puzzles.insert((game.initial, game.robot, game.target));
+        }
+        assert_eq!(puzzles.len(), 6);
+    }
+    #[test]
+    fn explicit_seed_remains_reproducible_for_benchmarks() {
+        let settings = Settings {
+            size: 10,
+            robots: 3,
+            minimum: Minimum::Fixed(2),
+            puzzle_seed: 123,
+            ..Settings::default()
+        };
+        let first =
+            generate_with_settings(0, settings, &AtomicBool::new(false), &AtomicUsize::new(0))
+                .unwrap();
+        let second =
+            generate_with_settings(0, settings, &AtomicBool::new(false), &AtomicUsize::new(0))
+                .unwrap();
+        assert_eq!(first.initial, second.initial);
+        assert_eq!(first.target, second.target);
+        assert_eq!(first.solution, second.solution);
     }
 }

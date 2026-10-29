@@ -53,3 +53,5 @@ cargo run --release --example generation_benchmark -- 11 0
 ```
 
 The benchmark accepts a minimum move count and a round number. Tests cover all 30 combinations of board sizes and robot counts, solution replay and optimality, hidden random minimum presentation, the 14-move limit, wall generation and connectivity, animation, and camera/touch coordinates.
+
+Interactive generation uses a fresh nonzero seed per request, derived from the standard library's randomly seeded hash state and a process-wide nonce. The initial board and New board also receive fresh seeds. Restarting the app no longer repeats the same round-based puzzle sequence. Next level retains the board seed but draws a new puzzle seed. Explicit seeds remain available through the benchmark/test entry points for reproducible debugging; they are not used as a fixed seed by the interactive game. Random sampling can still coincidentally produce the same puzzle; global duplicate history is not stored.
