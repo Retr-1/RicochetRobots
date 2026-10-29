@@ -7,6 +7,9 @@ use std::sync::{
     mpsc, Arc,
 };
 
+pub const MIN_MOVES: u8 = 2;
+pub const MAX_MOVES: u8 = 14;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Minimum {
     Fixed(u8),
@@ -17,6 +20,7 @@ pub struct Settings {
     pub size: usize,
     pub robots: usize,
     pub minimum: Minimum,
+    pub board_seed: u64,
 }
 impl Default for Settings {
     fn default() -> Self {
@@ -24,6 +28,7 @@ impl Default for Settings {
             size: 16,
             robots: 4,
             minimum: Minimum::Fixed(11),
+            board_seed: 0,
         }
     }
 }
@@ -34,8 +39,15 @@ impl Settings {
             Minimum::Random => {
                 let mut seed = (round as u64 + 1).wrapping_mul(0xd1b54a32d192ed03)
                     ^ (self.size as u64 * 31 + self.robots as u64);
-                2 + random(&mut seed) % 15
+                MIN_MOVES + random(&mut seed) % (MAX_MOVES - MIN_MOVES + 1)
             }
+        }
+    }
+    pub fn minimum_label(self, actual: usize, revealed: bool) -> String {
+        match self.minimum {
+            Minimum::Fixed(n) => format!("Minimum: {n} moves"),
+            Minimum::Random if revealed => format!("Minimum: {actual} moves"),
+            Minimum::Random => "Minimum: hidden".into(),
         }
     }
     fn valid(self) -> bool {
@@ -43,7 +55,7 @@ impl Settings {
             && self.size & 1 == 0
             && (1..=MAX_ROBOTS).contains(&self.robots)
             && match self.minimum {
-                Minimum::Fixed(n) => (2..=16).contains(&n),
+                Minimum::Fixed(n) => (MIN_MOVES..=MAX_MOVES).contains(&n),
                 Minimum::Random => true,
             }
     }
@@ -110,15 +122,15 @@ pub fn generate_with_settings(
     progress: &AtomicUsize,
 ) -> Result<Game, String> {
     if !settings.valid() {
-        return Err("Neplatne nastavenia".into());
+        return Err("Invalid settings".into());
     }
     let difficulty = settings.difficulty(round);
-    let board = Board::with_settings(settings.size, settings.robots);
+    let board = Board::generated(settings.size, settings.robots, settings.board_seed);
     let mut seed = (round as u64 + 1).wrapping_mul(0x9e3779b97f4a7c15) ^ difficulty as u64;
     // Draw X once, then search only for arrangements whose proven optimum is X.
     for attempt in 0..256 {
         if cancel.load(Ordering::Relaxed) {
-            return Err("Zrusene".into());
+            return Err("Cancelled".into());
         }
         progress.store(attempt + 1, Ordering::Relaxed);
         let mut initial = [0; MAX_ROBOTS];
@@ -167,7 +179,7 @@ pub fn generate_with_settings(
         }
     }
     Err(format!(
-        "Nenasiel som rozmiestnenie na {difficulty} tahov. Skus nove zadanie alebo ine nastavenia."
+        "No verified layout found for {difficulty} moves. Try a new puzzle or different settings."
     ))
 }
 #[cfg(test)]
@@ -184,7 +196,7 @@ mod tests {
         assert!(values.len() > 8);
         for r in 0..100 {
             let value = settings.difficulty(r);
-            assert!((2..=16).contains(&value));
+            assert!((MIN_MOVES..=MAX_MOVES).contains(&value));
             assert_eq!(value, settings.difficulty(r));
         }
     }
@@ -198,6 +210,7 @@ mod tests {
                 size,
                 robots,
                 minimum: Minimum::Fixed(2),
+                board_seed: 0,
             };
             let mut game =
                 generate_with_settings(0, settings, &AtomicBool::new(false), &AtomicUsize::new(0))
@@ -229,6 +242,7 @@ mod tests {
             size: 8,
             robots: 3,
             minimum: Minimum::Random,
+            board_seed: 0,
         };
         let round = (0..100)
             .find(|&round| settings.difficulty(round) == 2)
@@ -242,5 +256,62 @@ mod tests {
         .unwrap();
         assert_eq!(game.solution.len(), settings.difficulty(round) as usize);
         assert_eq!(game.board.robots, 3);
+    }
+    #[test]
+    fn random_minimum_label_never_leaks_the_drawn_value_before_reveal() {
+        let settings = Settings {
+            minimum: Minimum::Random,
+            ..Settings::default()
+        };
+        for n in MIN_MOVES as usize..=MAX_MOVES as usize {
+            assert_eq!(settings.minimum_label(n, false), "Minimum: hidden");
+            assert!(settings.minimum_label(n, true).contains(&n.to_string()));
+        }
+    }
+    #[test]
+    fn generation_uses_the_selected_new_board_and_keeps_it_for_next_level() {
+        let settings = Settings {
+            size: 10,
+            robots: 3,
+            minimum: Minimum::Fixed(2),
+            board_seed: 7,
+        };
+        for round in 0..2 {
+            let mut game = generate_with_settings(
+                round,
+                settings,
+                &AtomicBool::new(false),
+                &AtomicUsize::new(0),
+            )
+            .unwrap();
+            assert_eq!(game.board.walls, Board::generated(10, 3, 7).walls);
+            for (r, d) in game.solution.clone() {
+                game.selected = r;
+                game.play(d);
+            }
+            assert!(game.won());
+        }
+    }
+    #[test]
+    fn minimum_limit_is_fourteen_in_both_modes() {
+        assert!(Settings {
+            minimum: Minimum::Fixed(14),
+            ..Settings::default()
+        }
+        .valid());
+        for n in [0, 1, 15, 16, 255] {
+            assert!(!Settings {
+                minimum: Minimum::Fixed(n),
+                ..Settings::default()
+            }
+            .valid());
+        }
+        let random = Settings {
+            minimum: Minimum::Random,
+            ..Settings::default()
+        };
+        for round in 0..10_000 {
+            assert!((2..=14).contains(&random.difficulty(round)));
+        }
     }
 }

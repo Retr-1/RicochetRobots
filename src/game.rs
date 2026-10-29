@@ -68,6 +68,93 @@ impl Board {
         }
         b
     }
+    pub fn generated(size: usize, robots: usize, seed: u64) -> Self {
+        if seed == 0 {
+            return Self::with_settings(size, robots);
+        }
+        let mut board = Self::with_settings(size, robots);
+        for y in 0..size {
+            for x in 0..size {
+                for (d, &(dx, dy)) in DIRS.iter().enumerate() {
+                    board.walls[y * size + x][d] = !(0..size as i32).contains(&(x as i32 + dx))
+                        || !(0..size as i32).contains(&(y as i32 + dy));
+                }
+            }
+        }
+        for y in size / 2 - 1..size / 2 + 1 {
+            for x in size / 2 - 1..size / 2 + 1 {
+                for d in 0..4 {
+                    board.wall(x, y, d);
+                }
+            }
+        }
+        let mut state = seed ^ 0x9e3779b97f4a7c15;
+        let mut random = || {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            (state >> 24) as usize
+        };
+        let mut used = vec![false; size * size];
+        let mut placed = 0;
+        for _ in 0..1000 {
+            if placed >= size * size / 16 {
+                break;
+            }
+            let x = 1 + random() % (size - 2);
+            let y = 1 + random() % (size - 2);
+            let cell = y * size + x;
+            if used[cell] || board.blocked(cell as u8) {
+                continue;
+            }
+            if DIRS.iter().any(|&(dx, dy)| {
+                board.blocked(((y as i32 + dy) * size as i32 + x as i32 + dx) as u8)
+            }) {
+                continue;
+            }
+            let d = random() % 4;
+            let mut candidate = board.clone();
+            candidate.wall(x, y, d);
+            candidate.wall(x, y, (d + 1) % 4);
+            if candidate.connected() {
+                board = candidate;
+                used[cell] = true;
+                placed += 1;
+            }
+        }
+        for side in 0..4 {
+            let offset = 1 + random() % (size - 2);
+            let (x, y, d) = match side {
+                0 => (offset, 0, 1),
+                1 => (size - 1, offset, 2),
+                2 => (offset, size - 1, 3),
+                _ => (0, offset, 0),
+            };
+            let mut candidate = board.clone();
+            candidate.wall(x, y, d);
+            if candidate.connected() {
+                board = candidate;
+            }
+        }
+        board
+    }
+    fn connected(&self) -> bool {
+        let mut seen = vec![false; self.size * self.size];
+        let mut queue = VecDeque::from([0usize]);
+        seen[0] = true;
+        while let Some(cell) = queue.pop_front() {
+            for (d, &(dx, dy)) in DIRS.iter().enumerate() {
+                if !self.walls[cell][d] {
+                    let next = (cell as i32 + dx + dy * self.size as i32) as usize;
+                    if !seen[next] {
+                        seen[next] = true;
+                        queue.push_back(next);
+                    }
+                }
+            }
+        }
+        seen.iter().filter(|&&value| value).count() == self.size * self.size - 4
+    }
     pub fn blocked(&self, cell: u8) -> bool {
         let x = cell as usize % self.size;
         let y = cell as usize / self.size;
@@ -298,6 +385,32 @@ mod tests {
             }
             let p = [(size + 1) as u8, 0, 0, 0, 0, 0];
             assert!((board.slide(p, 0, 1)[0] as usize) < size * size);
+        }
+    }
+    #[test]
+    fn new_boards_change_walls_but_keep_a_connected_symmetric_play_area() {
+        for size in (8..=16).step_by(2) {
+            let first = Board::generated(size, 4, 1);
+            assert_ne!(first.walls, Board::generated(size, 4, 2).walls);
+            assert_eq!(first.walls, Board::generated(size, 4, 1).walls);
+            for seed in 1..16 {
+                let board = Board::generated(size, 4, seed);
+                assert!(board.connected());
+                for cell in 0..size * size {
+                    let (x, y) = ((cell % size) as i32, (cell / size) as i32);
+                    for (d, &(dx, dy)) in DIRS.iter().enumerate() {
+                        let (nx, ny) = (x + dx, y + dy);
+                        if (0..size as i32).contains(&nx) && (0..size as i32).contains(&ny) {
+                            assert_eq!(
+                                board.walls[cell][d],
+                                board.walls[ny as usize * size + nx as usize][(d + 2) % 4]
+                            );
+                        } else {
+                            assert!(board.walls[cell][d]);
+                        }
+                    }
+                }
+            }
         }
     }
 }
