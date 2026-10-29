@@ -28,7 +28,7 @@ powershell -ExecutionPolicy Bypass -File .\build-android.ps1
 
 APK: `target/android-artifacts/release/apk/robots.apk`.
 
-Build skript vytvorí izolovanú kópiu projektu s lock formátom v3 pre starší Cargo kontajnera. Hostiteľský Cargo.lock sa nemení. Macroquad je uzamknuté na 0.4.13 pre Rust 1.79. Závislosti sa uchovávajú vo volume `ricochet-android-registry`; prvé načítanie starého Git indexu môže trvať niekoľko minút. Testovací podpis zostáva vo volume `ricochet-android-signing` pre aktualizácie tej istej inštalácie.
+Build skript najprv zostaví a cachuje obraz `ricochet-android:api36` podľa `Dockerfile.android` s JDK 17, Android SDK 36 a build-tools 36.0.0. Prvé spustenie stiahne potrebné balíky. APK explicitne cieli na Android 16 (target API 36), minimálna podporovaná verzia je Android 5.0 (API 21). Skript overuje target aj minimum priamo v zabalenom manifeste a overuje podpis APK. Následne vytvorí izolovanú kópiu projektu s lock formátom v3 pre starší Cargo kontajnera. Hostiteľský Cargo.lock sa nemení. Macroquad je uzamknuté na 0.4.13 pre Rust 1.79. Závislosti sa uchovávajú vo volume `ricochet-android-registry`; prvé načítanie starého Git indexu môže trvať niekoľko minút. Testovací podpis zostáva vo volume `ricochet-android-signing` pre aktualizácie tej istej inštalácie.
 
 Natívny cieľ `robots` sa zhoduje s poslednou časťou package `sk.ricochet.robots`; skript kontroluje Java loader a `lib/arm64-v8a/librobots.so` v APK. Balík má vývojový podpis na lokálne testovanie. iOS zatiaľ nie je nakonfigurovaný.
 
@@ -41,4 +41,5 @@ cargo run --release --example generation_benchmark -- 11 0
 ```
 
 Posledný príkaz prijíma náročnosť a číslo kola. Testy porovnávajú solver s nezávislým BFS na menších zadaniach, kontrolujú 11-ťahové zadanie vrátane vylúčenia riešenia do 10 ťahov, pohyb, steny, prehrávanie a transformáciu dotykov.
+
 

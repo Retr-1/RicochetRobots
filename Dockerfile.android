@@ -1,0 +1,18 @@
+FROM eclipse-temurin:17-jdk-jammy AS java
+FROM notfl3/cargo-apk
+COPY --from=java /opt/java/openjdk /opt/jdk17
+ENV JAVA_HOME=/opt/jdk17
+ENV PATH=/opt/jdk17/bin:/opt/android-sdk-linux/cmdline-tools/latest/bin:/opt/android-sdk-linux/build-tools/36.0.0:${PATH}
+RUN wget -q https://dl.google.com/android/repository/commandlinetools-linux-13114758_latest.zip -O /tmp/android-tools.zip \
+    && unzip -q /tmp/android-tools.zip -d /tmp/android-tools \
+    && mkdir -p /opt/android-sdk-linux/cmdline-tools \
+    && mv /tmp/android-tools/cmdline-tools /opt/android-sdk-linux/cmdline-tools/latest \
+    && rm /tmp/android-tools.zip
+RUN yes | sdkmanager --licenses > /dev/null \
+    && sdkmanager "platforms;android-36" "build-tools;36.0.0"
+# The legacy packager discovers rt.jar by parsing Java 8's verbose startup log.
+# Use Java 8 for that probe only; SDK tools and compilation use JDK 17.
+RUN mkdir -p /opt/java-compat/bin \
+    && printf '%s\n' '#!/bin/sh' 'case "$*" in' '*-verbose*) exec /usr/lib/jvm/java-8-openjdk/bin/java "$@" ;;' '*) exec /opt/jdk17/bin/java "$@" ;;' 'esac' > /opt/java-compat/bin/java \
+    && chmod +x /opt/java-compat/bin/java
+ENV PATH=/opt/java-compat/bin:${PATH}

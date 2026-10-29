@@ -14,8 +14,14 @@ macroquad = "=0.4.13"
 [package.metadata.android]
 package_name = "sk.ricochet.robots"
 label = "Ricochet Robots"
-version_code = 7
+version_code = 8
+android_version = 36
+target_sdk_version = 36
+min_sdk_version = 21
 build_targets = ["aarch64-linux-android"]
+
+[package.metadata.android.application_attributes]
+"android:appCategory" = "game"
 
 [package.metadata.android.activity_attributes]
 "android:screenOrientation" = "portrait"
@@ -31,5 +37,6 @@ build_targets = ["aarch64-linux-android"]
 
 [profile.dev]
 opt-level = 2
+
 
 
