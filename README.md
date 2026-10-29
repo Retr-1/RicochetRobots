@@ -23,8 +23,9 @@ Solution playback takes 0.55 seconds per move: 0.10 seconds of preview, 0.30 sec
 - **Random minimum:** draw a number X from **2 to 14**, then search for positions whose verified shortest solution is exactly X. X stays hidden during generation and play. It is revealed after solving the puzzle or choosing Show solution. The hidden setting has no slider that could reveal its value.
 - **Robots:** 1–6.
 - **Board:** 8×8, 10×10, 12×12, 14×14, or 16×16.
+- **Random board / Classic board:** choose random wall generation or the Ricochet-style preset with L-shaped corners and a blocked center. The classic preset has eight rotated/mirrored variants and scales with board size; it is not a claim to reproduce a specific official board edition.
 
-Slider changes generate a new puzzle after release. Next level preserves settings and walls; random mode draws a new hidden X. New board changes the walls while preserving settings. Generated walls are symmetric and keep the playing area connected, excluding the blocked center.
+Slider changes generate a new puzzle after release. Next level preserves settings and walls; random mode draws a new hidden X. New board changes the walls while preserving settings and the selected board type. In classic mode it selects a different orientation/mirroring of the preset. Next level keeps the current variant. Generated walls are symmetric and keep the playing area connected, excluding the blocked center.
 
 Generation runs in a background thread and can be replaced by another request. IDA* uses an admissible lower bound and searches smaller depths before accepting a solution. One-move puzzles are excluded. A requested minimum may be impossible for some board and robot combinations or may exceed the search budget. In that case, the game reports failure rather than silently reducing the minimum. Try another level or change the settings.
 
@@ -55,3 +56,4 @@ cargo run --release --example generation_benchmark -- 11 0
 The benchmark accepts a minimum move count and a round number. Tests cover all 30 combinations of board sizes and robot counts, solution replay and optimality, hidden random minimum presentation, the 14-move limit, wall generation and connectivity, animation, and camera/touch coordinates.
 
 Interactive generation uses a fresh nonzero seed per request, derived from the standard library's randomly seeded hash state and a process-wide nonce. The initial board and New board also receive fresh seeds. Restarting the app no longer repeats the same round-based puzzle sequence. Next level retains the board seed but draws a new puzzle seed. Explicit seeds remain available through the benchmark/test entry points for reproducible debugging; they are not used as a fixed seed by the interactive game. Random sampling can still coincidentally produce the same puzzle; global duplicate history is not stored.
+

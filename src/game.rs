@@ -68,6 +68,38 @@ impl Board {
         }
         b
     }
+    // Classic Ricochet-style preset with L corners and a blocked center.
+    // Rotate/mirror the whole template to keep its structure at every variant.
+    pub fn classic(size: usize, robots: usize, seed: u64) -> Self {
+        let original = Self::with_settings(size, robots);
+        let variant = (seed % 8) as usize;
+        let mut board = original.clone();
+        board.walls.fill([false; 4]);
+        for y in 0..size {
+            for x in 0..size {
+                for d in 0..4 {
+                    if !original.walls[y * size + x][d] {
+                        continue;
+                    }
+                    let (mut nx, mut ny, mut nd) = (x, y, d);
+                    if variant >= 4 {
+                        nx = size - 1 - nx;
+                        nd = match nd {
+                            1 => 3,
+                            3 => 1,
+                            _ => nd,
+                        };
+                    }
+                    for _ in 0..variant % 4 {
+                        (nx, ny) = (size - 1 - ny, nx);
+                        nd = (nd + 1) % 4;
+                    }
+                    board.walls[ny * size + nx][nd] = true;
+                }
+            }
+        }
+        board
+    }
     pub fn generated(size: usize, robots: usize, seed: u64) -> Self {
         if seed == 0 {
             return Self::with_settings(size, robots);

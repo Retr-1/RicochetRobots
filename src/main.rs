@@ -4,7 +4,7 @@ mod generation;
 mod layout;
 mod solver;
 use game::*;
-use generation::{Minimum, Settings, MAX_MOVES, MIN_MOVES};
+use generation::{BoardType, Minimum, Settings, MAX_MOVES, MIN_MOVES};
 use macroquad::prelude::*;
 const BG: Color = Color::new(0.035, 0.055, 0.10, 1.);
 const PANEL: Color = Color::new(0.08, 0.11, 0.18, 1.);
@@ -52,19 +52,19 @@ fn button(r: Rect, t: &str, click: Option<Vec2>, active: bool) -> bool {
     );
     click.is_some_and(|p| r.contains(p))
 }
-fn radio(x: f32, text: &str, selected: bool, click: Option<Vec2>) -> bool {
-    draw_circle_lines(
-        x + 7.,
-        55.,
-        6.,
-        1.5,
-        if selected { COLORS[1] } else { GRAY },
-    );
+fn radio(x: f32, y: f32, text: &str, selected: bool, click: Option<Vec2>) -> bool {
+    draw_circle_lines(x + 7., y, 6., 1.5, if selected { COLORS[1] } else { GRAY });
     if selected {
-        draw_circle(x + 7., 55., 3., COLORS[1]);
+        draw_circle(x + 7., y, 3., COLORS[1]);
     }
-    label(text, x + 21., 61., 17., if selected { WHITE } else { GRAY });
-    click.is_some_and(|p| Rect::new(x, 42., 190., 25.).contains(p))
+    label(
+        text,
+        x + 21.,
+        y + 6.,
+        17.,
+        if selected { WHITE } else { GRAY },
+    );
+    click.is_some_and(|p| Rect::new(x, y - 13., 190., 25.).contains(p))
 }
 // A slider commits its setting on release; dragging never starts multiple workers.
 fn slider(
@@ -156,6 +156,7 @@ async fn main() {
         let mut changed = false;
         if radio(
             22.,
+            55.,
             "Custom minimum",
             matches!(settings.minimum, Minimum::Fixed(_)),
             click,
@@ -166,6 +167,7 @@ async fn main() {
         }
         if radio(
             224.,
+            55.,
             "Random minimum",
             settings.minimum == Minimum::Random,
             click,
@@ -250,6 +252,28 @@ async fn main() {
             (pointer, click),
             &mut drag,
         );
+        if radio(
+            22.,
+            155.,
+            "Random board",
+            settings.board_type == BoardType::Random,
+            click,
+        ) && settings.board_type != BoardType::Random
+        {
+            settings.board_type = BoardType::Random;
+            changed = true;
+        }
+        if radio(
+            224.,
+            155.,
+            "Classic board",
+            settings.board_type == BoardType::Classic,
+            click,
+        ) && settings.board_type != BoardType::Classic
+        {
+            settings.board_type = BoardType::Classic;
+            changed = true;
+        }
         if changed {
             generation = Some(generation::Generation::start(next_round, settings));
             next_round += 1;
@@ -258,25 +282,25 @@ async fn main() {
             showing_solution = false;
             press = None;
         }
-        label(&format!("ROUND {:02}", g.round + 1), 22., 164., 18., GRAY);
+        label(&format!("ROUND {:02}", g.round + 1), 22., 188., 18., GRAY);
         label(
             &format!("{} moves", g.history.len()),
             300.,
-            164.,
+            188.,
             22.,
             WHITE,
         );
-        draw_circle(34., 184., 7., COLORS[g.robot]);
+        draw_circle(34., 208., 7., COLORS[g.robot]);
         label(
             &format!("Get the {} robot to the target", NAMES[g.robot]),
             52.,
-            190.,
+            214.,
             17.,
             WHITE,
         );
         let size = g.board.size;
-        let cell = 384. / size as f32;
-        let origin = vec2(28., 202.);
+        let cell = 360. / size as f32;
+        let origin = vec2(40., 226.);
         let center = |s: u8| {
             origin
                 + vec2(
@@ -376,7 +400,7 @@ async fn main() {
             press = None;
         }
         if button(Rect::new(226., 674., 192., 44.), "New board", click, false) {
-            settings.board_seed = generation::fresh_seed();
+            settings.new_board();
             generation = Some(generation::Generation::start(next_round, settings));
             next_round += 1;
             generation_error = None;
@@ -459,7 +483,7 @@ async fn main() {
             if let Some(start) = press.take() {
                 let delta = pointer - start;
                 if input_enabled
-                    && Rect::new(28., 202., 384., 384.).contains(start)
+                    && Rect::new(40., 226., 360., 360.).contains(start)
                     && delta.length() > cell * 0.65
                 {
                     let d = if delta.x.abs() > delta.y.abs() {
@@ -547,7 +571,7 @@ async fn main() {
             );
         }
         if let Some(job) = generation.as_ref() {
-            draw_rectangle(28., 202., 384., 384., Color::new(BG.r, BG.g, BG.b, 0.94));
+            draw_rectangle(40., 226., 360., 360., Color::new(BG.r, BG.g, BG.b, 0.94));
             label(
                 &if matches!(settings.minimum, Minimum::Random) {
                     "GENERATING NEW PUZZLE".into()
@@ -572,7 +596,7 @@ async fn main() {
             );
             label("Hard puzzles may take a while.", 45., 440., 17., GRAY);
         } else if generation_error.is_some() {
-            draw_rectangle(28., 202., 384., 384., BG);
+            draw_rectangle(40., 226., 360., 360., BG);
             label("NO LAYOUT FOUND", 42., 330., 21., WHITE);
             label(
                 "Try Next level or change the settings.",

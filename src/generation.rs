@@ -26,11 +26,17 @@ pub enum Minimum {
     Random,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BoardType {
+    Random,
+    Classic,
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Settings {
     pub size: usize,
     pub robots: usize,
     pub minimum: Minimum,
     pub board_seed: u64,
+    pub board_type: BoardType,
     pub puzzle_seed: u64,
 }
 impl Default for Settings {
@@ -40,11 +46,30 @@ impl Default for Settings {
             robots: 4,
             minimum: Minimum::Fixed(11),
             board_seed: 0,
+            board_type: BoardType::Random,
             puzzle_seed: 0,
         }
     }
 }
 impl Settings {
+    pub fn board(self) -> Board {
+        match self.board_type {
+            BoardType::Random => Board::generated(self.size, self.robots, self.board_seed),
+            BoardType::Classic => Board::classic(self.size, self.robots, self.board_seed),
+        }
+    }
+    pub fn new_board(&mut self) {
+        let previous = self.board_seed;
+        loop {
+            let next = fresh_seed();
+            if next != previous
+                && (self.board_type == BoardType::Random || next % 8 != previous % 8)
+            {
+                self.board_seed = next;
+                break;
+            }
+        }
+    }
     pub fn difficulty(self, round: usize) -> u8 {
         match self.minimum {
             Minimum::Fixed(n) => n,
@@ -140,7 +165,7 @@ pub fn generate_with_settings(
         return Err("Invalid settings".into());
     }
     let difficulty = settings.difficulty(round);
-    let board = Board::generated(settings.size, settings.robots, settings.board_seed);
+    let board = settings.board();
     let mut seed = ((round as u64 + 1).wrapping_mul(0x9e3779b97f4a7c15)
         ^ difficulty as u64
         ^ settings.puzzle_seed)
@@ -229,6 +254,7 @@ mod tests {
                 robots,
                 minimum: Minimum::Fixed(2),
                 board_seed: 0,
+                board_type: BoardType::Random,
                 puzzle_seed: 0,
             };
             let mut game =
@@ -262,6 +288,7 @@ mod tests {
             robots: 3,
             minimum: Minimum::Random,
             board_seed: 0,
+            board_type: BoardType::Random,
             puzzle_seed: 0,
         };
         let round = (0..100)
@@ -295,6 +322,7 @@ mod tests {
             robots: 3,
             minimum: Minimum::Fixed(2),
             board_seed: 7,
+            board_type: BoardType::Random,
             puzzle_seed: 0,
         };
         for round in 0..2 {
@@ -345,6 +373,7 @@ mod tests {
             robots: 3,
             minimum: Minimum::Fixed(2),
             board_seed: 17,
+            board_type: BoardType::Random,
             puzzle_seed: 0,
         };
         let mut puzzles = std::collections::HashSet::new();
@@ -379,5 +408,50 @@ mod tests {
         assert_eq!(first.initial, second.initial);
         assert_eq!(first.target, second.target);
         assert_eq!(first.solution, second.solution);
+    }
+    #[test]
+    fn classic_and_random_board_modes_respect_type_and_regenerate() {
+        for size in (8..=16).step_by(2) {
+            let mut settings = Settings {
+                size,
+                minimum: Minimum::Fixed(2),
+                board_type: BoardType::Classic,
+                board_seed: 0,
+                ..Settings::default()
+            };
+            assert_eq!(settings.board().walls, Board::with_settings(size, 4).walls);
+            let original = settings.board().walls;
+            settings.new_board();
+            assert_ne!(settings.board_seed % 8, 0);
+            assert_ne!(settings.board().walls, original);
+            let before = settings.board_seed;
+            settings.board_type = BoardType::Random;
+            settings.new_board();
+            assert_ne!(settings.board_seed, before);
+        }
+        let settings = Settings {
+            size: 10,
+            robots: 3,
+            minimum: Minimum::Fixed(2),
+            board_type: BoardType::Classic,
+            board_seed: 5,
+            ..Settings::default()
+        };
+        let expected = settings.board().walls;
+        for round in 0..2 {
+            let mut game = generate_with_settings(
+                round,
+                settings,
+                &AtomicBool::new(false),
+                &AtomicUsize::new(0),
+            )
+            .unwrap();
+            assert_eq!(game.board.walls, expected);
+            for (r, d) in game.solution.clone() {
+                game.selected = r;
+                game.play(d);
+            }
+            assert!(game.won());
+        }
     }
 }
